@@ -1,0 +1,346 @@
+<html>
+
+<head>
+  <style>
+    body {
+      font-family: Helvetica, Arial, sans-serif
+    }
+
+    h1 {
+      background-color: steelblue;
+      /* TODO 1
+            change the text to white and add a padding of 5px
+            2 lines of code
+            */
+      color: white;
+      padding: 5px;
+    }
+    h2 {
+      color: black;
+      font-size: 18px;
+    }
+    /* TODO 2
+        Add code to show a gray border of 2px around all SVGs elements in the page
+        1-3 lines of code
+        */
+    svg{
+      border: 2px solid gray;
+    }
+    /* TODO 3
+         - Use the "display flex" feature from to show the items from class `mainView` side by side
+         1-3 lines of cide
+        */
+    .mainView{
+      display: flex;
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Global Sales</h1>
+  <div class="mainView">
+    <div>
+      <h2>Categories:sales and profit</h2>
+      <svg id="CatergoryChart">
+        <g id = "rects"> </g>
+        <g id = "xAxis"> </g>
+        <g id = "yAxis"> </g>
+      </svg>
+    </div>
+    <div>
+      <h2>Area:profit of all categories</h2>
+      <svg id="Map"></svg>
+    </div>
+    <div>
+      <h2>Other</h2>
+      <svg id="Other"></svg>
+    </div>
+  </div>
+  <!-- load data -->
+  <script src="d3/d3.min.js"></script>
+  <script src="https://unpkg.com/topojson-client@3"></script>
+  <script>
+    // initialize the bar
+    var barChartWidth = 480;
+    var barChartHeight = 480;
+    var barChartPadding = {
+      top: 30,
+      left: 80,
+      bottom: 30,
+      right: 30
+    }
+    var varChart = d3.select("#CatergoryChart")
+                    .attr("width", barChartWidth)
+                    .attr("height", barChartHeight)
+    // load data from csv
+    var barData = [];
+    var nestBySubCategory;
+    
+    d3.csv("data/sub-categories-states-sales.csv").then(function(data){
+      var dataUS = data.filter(function(d){
+        return d.country == "United States";
+      });
+      //转换数据类型
+      dataUS.forEach((item, i) => {
+          item.profit = +item.profit;
+          item.sales = +item.sales;
+      });
+      //按类别重新组织数据
+      nestBySubCategory = d3.groups(dataUS ,function(d){
+        return d.subCategory;
+      })
+      console.log(nestBySubCategory);
+      
+      //计算总销量和总记录
+      nestBySubCategory.forEach(function(item , index, array){ //第一层循环,读取0-16个数组
+          var sumProfit = 0;
+          var sumSales= 0;
+          item[1].forEach(function(d){      //第二层循环，对数值累加
+            sumProfit +=d.profit;
+            sumSales += d.sales; 
+          })
+          barData.push({            //将加过的结果放入bardata中
+            subCategory :item[0],
+            profit :sumProfit,
+            sales : sumSales
+          });
+        })
+        console.log(barData);   
+
+      // 转换为映射表形式，方便后续快速检索指定类别
+      nestBySubCategory = d3.group(dataUS, d => d.subCategory)
+      console.log(nestBySubCategory);    //注意groups和group的区别
+      drawBarChart(); // 根据barData来绘制柱状图  
+    })
+
+  
+    function drawBarChart(){
+      var maxSales = d3.max(barData, function(d){
+        return d.sales;
+      });   // 得到最大销量
+
+      var xScale = d3.scaleLinear()
+        .domain([0, maxSales]) // set the input domain
+        // .range([barChartWidth - barChartPadding.right, barChartPadding.left]);
+        .range([barChartPadding.left, barChartWidth - barChartPadding.right]);
+
+      var yScale = d3.scaleBand()
+        .domain(barData.map( function(d){
+          return d.subCategory;
+        })) // 得到所有类别信息
+        .rangeRound([barChartPadding.top, barChartHeight - barChartPadding.bottom]) // set the output range
+        .paddingInner(0.3);
+        
+      var maxProfit = d3.max(barData, function(d){
+        return d.profit;
+      });
+      var color = d3.scaleDiverging()
+        .domain([-maxProfit, 0, maxProfit])
+        .interpolator(d3.interpolateRdBu);
+      
+
+      // draw the bar
+      var bindings = d3.select("#CatergoryChart").select("#rects").selectAll("rect")
+                        .data(barData);
+      
+      var enterRects = bindings.enter();
+      var exitRects = bindings.exit();
+
+      //update
+      // enter
+      enterRects.append("rect")
+      .attr("height", yScale.bandwidth())
+      .attr("width", function(d){
+        return xScale(d.sales) - xScale(0);
+      })
+      .attr("x", function(d){
+        return xScale(0);
+      })
+      .attr("y", function(d){
+        return yScale(d.subCategory);
+      })
+      .style("fill", function(d) {
+        return color(d.profit);
+      });
+      
+      // exit
+      exitRects.remove();
+
+      // draw x axis
+      var xAxis = d3.axisBottom(xScale);
+      d3.select("#xAxis").call(xAxis)
+      .attr("transform","translate(0," + yScale.range()[1] +")");
+      // draw y axis。
+      var yAxis = d3.axisLeft(yScale)
+      d3.select("#yAxis").call(yAxis)
+      .attr("transform","translate(" + xScale.range()[0] +", 0)");
+      }
+  </script>
+  
+  <script>
+    // initialize the bar
+    var barGeoChartWidth = 480;
+    var barGeoChartHeight = 480;
+    d3.select("#Map")
+      .attr("width", barGeoChartWidth)
+      .attr("height", barGeoChartHeight)
+    d3.select("#Other")
+      .attr("width", barGeoChartWidth * 2)
+
+    var mapInfo;
+    var nestBySubState;
+    var profitInfoMap = new Map();
+    console.log(profitInfoMap)
+
+    // load json
+    d3.json("states-albers-10m.json").then(function(us){
+      mapInfo = us;
+    })
+    // load data from csv
+    d3.csv("data/sub-categories-states-sales.csv").then(function(data){
+    var dataUS = data.filter(function(d){
+      return d.country == "United States";
+    });
+    //转换数据类型
+    dataUS.forEach((item, i) => {
+        item.profit = +item.profit;
+        // item.sales = +item.sales;
+    });
+    //按州重新组织数据
+    nestBySubState = d3.groups(dataUS ,function(d){
+      return d.state;
+    })
+    console.log(nestBySubState)
+    //计算总利润并存为映射表
+    nestBySubState.forEach(function(item){
+      var sumProfit = 0;
+      item[1].forEach(function(d){
+        sumProfit += d.profit;
+      });
+      profitInfoMap.set(item[0], sumProfit);
+      // console.log(profitInfoMap)
+    });
+    // console.log(nestBySubState)
+    // console.log(profitInfoMap)
+
+    drawMap();
+     })
+
+    function drawMap(){
+    // 定义颜色映射
+    var maxProfit = d3.max(profitInfoMap, function(item){
+      return item[1];
+    });
+    // console.log(maxProfit)
+    var color = d3.scaleDiverging()
+      .domain([-maxProfit, 0, maxProfit])
+      .interpolator(d3.interpolateRdBu);
+
+    // 绘制地图区域
+    // 设置缩放
+    var projection = d3.geoIdentity()
+      .fitSize([barGeoChartWidth, barGeoChartHeight], topojson.feature(mapInfo, mapInfo.objects.states));
+
+    var path = d3.geoPath()
+      .projection(projection);
+    var svg = d3.select("#Map")
+    svg.append("g")
+      .selectAll("path")
+      .data(topojson.feature(mapInfo, mapInfo.objects.states).features)
+      .join("path")
+      .attr("d", path)
+      .attr("fill", function(d) {
+        var profit = 0;
+        // profit = profitInfoMap.get(d.properties.name);
+        // 因为有一个州(Alaska)不存在profit这项数据，因此要设置为0
+        if(profitInfoMap.has(d.properties.name))
+        {
+          profit = profitInfoMap.get(d.properties.name);
+        }
+        else{
+          return "gray";
+        }
+        return color(profit);
+      })
+
+    // 绘制区域的边界
+    svg.append("g").append("path")
+      .datum(topojson.mesh(mapInfo, mapInfo.objects.states, (a, b) => a !== b))
+      .attr("fill", "none")
+      .attr("stroke", "white")
+      .attr("stroke-linejoin", "round")
+      .attr("d", path);
+
+
+    // 绘制图例
+    var legend = svg.append("g")
+      .attr("class", "legend")
+      .attr("transform", `translate(300, 30)`);
+
+    var legendWidth = 150;
+    var legendHeight = 20;
+
+    var minProfit = d3.min(profitInfoMap, function(item){
+        return item[1];
+    });
+
+    // 定义图例的刻度
+    var legendScale = d3.scaleLinear()
+      .domain([minProfit, maxProfit])
+      .range([0, legendWidth]);
+
+    var legendcolor = d3.scaleDiverging()
+      .domain([-maxProfit, 0, maxProfit])
+      .interpolator(d3.interpolateRdBu);
+
+     // 绘制渐变色矩形
+    legend.append("rect")
+      .attr("width", legendWidth)
+      .attr("height", legendHeight)
+      .attr("fill", "url(#gradient)");
+    
+    var gradient = legend.append("defs")
+      .append("linearGradient")
+      .attr("id", "gradient")
+      .attr("x1", "0%")
+      .attr("y1", "0%")
+      .attr("x2", "100%")
+      .attr("y2", "0%");
+
+  // 向渐变中添加颜色
+    var stops = d3.range(minProfit, maxProfit + 1, (maxProfit - minProfit) / 5);
+    console.log(stops)
+    console.log(maxProfit)
+    console.log(minProfit)
+    stops.forEach(function(stop) {
+      console.log(legendScale(stop) / legendWidth)
+      gradient.append("stop")
+        .attr("offset", legendScale(stop) / legendWidth)
+        .attr("stop-color", legendcolor(stop));
+    });
+  
+  // 绘制坐标轴
+  // 因为利润的值字1w量级，因此显示的时候以w为单位
+    var legendAxis = legend.append("g")
+      .attr("class", "legend-axis")
+      .attr("transform", "translate(0," + legendHeight + ")")
+      .call(d3.axisBottom(legendScale)
+              .tickValues(d3.range(minProfit, maxProfit + 1, (maxProfit - minProfit) / 4))
+              .tickFormat(function(d){
+                return (d/10000).toFixed(1)
+              }));
+
+  // 绘制标题
+  var title = "Profit (ten thousand dollor)";
+      legend.append("text")
+        .attr("class", "title")
+        .text(title)
+        .attr("font-size", "12px");
+     }
+
+  </script>
+
+</body>
+
+</html>
